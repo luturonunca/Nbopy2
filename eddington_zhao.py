@@ -80,3 +80,59 @@ def compute_fE(alpha, beta, gamma, Rmin=1e-2, Rmax=100, NE=1000, NR=1000, epsrel
         "fE": fE,
         "M_r": Mcum
     }
+
+
+
+def sample_particles_from_fE(df, N=10000, seed=42):
+    np.random.seed(seed)
+
+    R = df["R"]
+    psi = df["psi"]
+    Mcum = df["M_r"]
+    psi_interp = df["psi_interp"]
+    fE_interp = df["fE_interp"]
+
+    # Interpolators
+    Mcum_interp = interp1d(Mcum, R, bounds_error=False, fill_value=(R[0], R[-1]))
+    psiR_interp = interp1d(R, psi, bounds_error=False, fill_value=(psi[0], 0.0))
+
+    pos = []
+    vel = []
+    n = 0
+
+    while n < N:
+        # Sample radius by inverse CDF
+        randM = np.random.rand()
+        r = Mcum_interp(randM)
+        psi_r = psiR_interp(r)
+
+        # Rejection sampling for E
+        accepted = False
+        while not accepted:
+            eps = np.random.rand() * psi_r
+            v2 = 2 * (psi_r - eps)
+            f_val = fE_interp(eps)
+            max_f = fE_interp(psi_r)
+            if np.random.rand() < f_val / max_f:
+                accepted = True
+
+        # Sample angles (uniform on sphere)
+        theta = np.arccos(2 * np.random.rand() - 1)
+        phi = 2 * np.pi * np.random.rand()
+        x = r * np.sin(theta) * np.cos(phi)
+        y = r * np.sin(theta) * np.sin(phi)
+        z = r * np.cos(theta)
+
+        # Sample velocity direction
+        theta_v = np.arccos(2 * np.random.rand() - 1)
+        phi_v = 2 * np.pi * np.random.rand()
+        v = np.sqrt(v2)
+        vx = v * np.sin(theta_v) * np.cos(phi_v)
+        vy = v * np.sin(theta_v) * np.sin(phi_v)
+        vz = v * np.cos(theta_v)
+
+        pos.append([x, y, z])
+        vel.append([vx, vy, vz])
+        n += 1
+
+    return np.array(pos), np.array(vel)
