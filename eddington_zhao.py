@@ -1,49 +1,82 @@
 import numpy as np
+from scipy.integrate import quad
 from scipy.interpolate import interp1d
-from scipy.integrate import simpson, cumulative_trapezoid
+from math import pi
 
-G = 4.30091e-6  # kpc^3 / (Msun s^2)
 
-def compute_fE(r_grid, rho_func):
-    # 1. Density
-    rho_r = rho_func(r_grid)
+def compute_fE(alpha, beta, gamma, Rmin=1e-2, Rmax=100, NE=1000, NR=1000, epsrel=1e-6):
+    """
+    Compute the distribution function f(E) for a dimensionless Zhao profile
+    with given (alpha, beta, gamma) using Eddington inversion.
 
-    # 2. Enclosed mass
-    mass_r = cumulative_trapezoid(4 * np.pi * rho_r * r_grid**2, r_grid, initial=0)
+    Returns a dictionary with:
+        R       : radius grid
+        rho     : density profile (normalized)
+        psi     : relative potential
+        E       : energy grid
+        fE      : distribution function values on E
+    """
 
-    # 3. Potential Phi(r)
-    phi_r = np.zeros_like(r_grid)
-    for i in range(len(r_grid)):
-        r_slice = r_grid[i:]
-        m_slice = mass_r[i:]
-        phi_r[i] = -G * simpson(m_slice / r_slice**2, r_slice)
+    # Zhao profile with rho0 = 1, rs = 1
+    def rho(r):
+        return r**(-gamma) * (1 + r**alpha)**((gamma - beta) / alpha)
 
-    # 4. Relative potential Ψ(r) = Φ(R_max) - Φ(r)
-    psi_r = phi_r[-1] - phi_r
+    # Normalization
+    M_tot = 4 * pi * quad(lambda r: r**2 * rho(r), 0, np.inf)[0]
 
-    # 5. Derivatives
-    sorted_idx = np.argsort(psi_r)
-    psi_sorted = psi_r[sorted_idx]
-    rho_sorted = rho_r[sorted_idx]
+    # Grids
+    R = np.logspace(np.log10(Rmin), np.log10(Rmax), NR)
+    rho_r = rho(R) / M_tot
 
-    dpsi = np.gradient(psi_sorted)
-    drho = np.gradient(rho_sorted, dpsi)
-    d2rho = np.gradient(drho, dpsi)
+    # Cumulative mass profile
+    def M_r(r):
+        return 4 * pi * quad(lambda rp: rp**2 * rho(rp), 0, r)[0] / M_tot
+    M_r_vec = np.vectorize(M_r)
+    Mcum = M_r_vec(R)
 
-    d2rho_interp = interp1d(psi_sorted, d2rho, bounds_error=False, fill_value=0)
+    # Gravitational potential
+    def Phi(r):
+        I1 = quad(lambda rp: rp**2 * rho(rp), 0, r)[0]
+        I2 = quad(lambda rp: rp * rho(rp), r, np.inf)[0]
+        return -4 * pi * (I1 / r + I2) / M_tot
+    Phi_vec = np.vectorize(Phi)
+    psi = -Phi_vec(R)  # relative potential
 
-    # 6. Compute f(E)
-    eps_grid = np.linspace(psi_sorted[0], psi_sorted[-1], 200)
-    f_eps = []
-    for eps in eps_grid:
-        psi_vals = psi_sorted[psi_sorted < eps]
-        if len(psi_vals) < 2:
-            f_eps.append(0.0)
-            continue
-        integrand_vals = d2rho_interp(psi_vals) / np.sqrt(eps - psi_vals)
-        integral = simpson(integrand_vals, psi_vals)
-        f_val = (1 / (np.sqrt(8) * np.pi**2)) * integral
-        f_eps.append(f_val)
+    # Interpolate psi and rho
+    psi_interp = interp1d(R, psi, bounds_error=False, fill_value=(psi[0], 0.0))
+    rho_interp = interp1d(R, rho_r, bounds_error=False, fill_value=(rho_r[0], 0.0))
 
-    return eps_grid, np.array(f_eps), psi_r, rho_r, phi_r, mass_r
+    # Derivatives d^2 rho / d psi^2
+    dndr = np.gradient(rho_r, psi)
+    d2nd2r = np.gradient(dndr, psi)
 
+    # Interpolator for second derivative
+    d2nd2p_interp = interp1d(psi, d2nd2r, kind='linear', fill_value=0, bounds_error=False)
+
+    # Build energy grid
+    maxE = psi[0]           # most bound
+    minE = maxE / NE
+    E = np.linspace(minE, maxE, NE)
+
+    # Compute f(E)
+    fE = []
+    for eps in E:
+        def integrand(p):
+            if p >= eps:
+                return 0.0
+            return d2nd2p_interp(p) / np.sqrt(eps - p)
+
+        integral, _ = quad(integrand, psi[-1], eps, epsrel=epsrel, limit=100)
+        f_eps = (1 / (np.sqrt(8) * pi**2)) * integral
+        fE.append(f_eps)
+
+    fE = np.array(fE)
+
+    return {
+        "R": R,
+        "rho": rho_r,
+        "psi": psi,
+        "E": E,
+        "fE": fE,
+        "M_r": Mcum
+    }
