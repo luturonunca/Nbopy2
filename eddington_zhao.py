@@ -15,6 +15,7 @@ def compute_fE(alpha, beta, gamma, Rmin=1e-2, Rmax=100, NE=1000, NR=1000, epsrel
         psi     : relative potential
         E       : energy grid
         fE      : distribution function values on E
+        M_r     : cumulative mass profile
     """
 
     # Zhao profile with rho0 = 1, rs = 1
@@ -78,9 +79,11 @@ def compute_fE(alpha, beta, gamma, Rmin=1e-2, Rmax=100, NE=1000, NR=1000, epsrel
         "psi": psi,
         "E": E,
         "fE": fE,
-        "M_r": Mcum
+        "M_r": Mcum,
+        "rho_func": rho,
+        "psi_interp": psi_interp,
+        "fE_interp": interp1d(E, fE, bounds_error=False, fill_value=0.0),
     }
-
 
 
 def sample_particles_from_fE(df, N=10000, seed=42):
@@ -112,7 +115,8 @@ def sample_particles_from_fE(df, N=10000, seed=42):
             eps = np.random.rand() * psi_r
             v2 = 2 * (psi_r - eps)
             f_val = fE_interp(eps)
-            max_f = fE_interp(psi_r)
+            #max_f = fE_interp(psi_r)
+            max_f = 1.1 * np.max(df["fE"])
             if np.random.rand() < f_val / max_f:
                 accepted = True
 
@@ -136,3 +140,4 @@ def sample_particles_from_fE(df, N=10000, seed=42):
         n += 1
 
     return np.array(pos), np.array(vel)
+
