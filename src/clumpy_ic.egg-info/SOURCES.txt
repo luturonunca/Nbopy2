@@ -1,0 +1,10 @@
+LICENSE
+README.md
+pyproject.toml
+src/clumpy_ic/__init__.py
+src/clumpy_ic/distribution.py
+src/clumpy_ic/sampling.py
+src/clumpy_ic.egg-info/PKG-INFO
+src/clumpy_ic.egg-info/SOURCES.txt
+src/clumpy_ic.egg-info/dependency_links.txt
+src/clumpy_ic.egg-info/top_level.txt
